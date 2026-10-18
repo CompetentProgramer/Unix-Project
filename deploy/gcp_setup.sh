@@ -129,9 +129,39 @@ cmd_vm() {
   fi
 }
 
+cmd_set_dashboard_ip() {
+  [[ $# -ge 1 ]] || die "usage: $0 set-dashboard-ip <IP> [MORE_IPS...]"
+
+  # Step 1: GCP firewall (this also validates every IP).
+  cmd_firewall "$@"
+
+  # Step 2: iptables on every running VM tagged $TAG.
+  if [[ -n "${DRY_RUN:-}" ]]; then
+    echo "+ (for each running VM tagged $TAG) gcloud compute ssh <vm> --tunnel-through-iap --command 'sudo /opt/obs-agent/deploy/iptables.sh $*'"
+    return
+  fi
+
+  local name zone count=0
+  while read -r name zone; do
+    [[ -n "$name" ]] || continue
+    info "Updating iptables on $name"
+    gcloud compute ssh "$name" --zone "$zone" --project "$PROJECT" \
+      --tunnel-through-iap --quiet \
+      --command "sudo /opt/obs-agent/deploy/iptables.sh $*" </dev/null \
+      && count=$((count + 1)) \
+      || echo "warning: could not update $name (is setup_vm.sh done on it?); fix it and rerun"
+  done < <(gcloud compute instances list --project "$PROJECT" \
+    --filter="tags.items=$TAG AND status=RUNNING" --format='value(name,zone.basename())')
+
+  echo
+  echo "GCP firewall updated; iptables updated on $count VM(s)."
+  echo "Stopped VMs keep their old iptables rules: rerun this command after starting them."
+}
+
 case "${1:-}" in
-  network)  shift; cmd_network "$@" ;;
-  firewall) shift; cmd_firewall "$@" ;;
-  vm)       shift; cmd_vm "$@" ;;
-  *) echo "usage: $0 {network|firewall <DASHBOARD_IP>|vm N}" >&2; exit 1 ;;
+  network)          shift; cmd_network "$@" ;;
+  firewall)         shift; cmd_firewall "$@" ;;
+  vm)               shift; cmd_vm "$@" ;;
+  set-dashboard-ip) shift; cmd_set_dashboard_ip "$@" ;;
+  *) echo "usage: $0 {network|firewall IP...|vm N|set-dashboard-ip IP...}" >&2; exit 1 ;;
 esac
