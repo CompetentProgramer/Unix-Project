@@ -1,0 +1,30 @@
+[Unit]
+Description=obs stress-ng load generator (alternating classes)
+After=network.target
+
+[Service]
+# Type=notify: the script sends READY=1 itself. NotifyAccess=all lets
+# systemd-notify (a child process of the script) talk to systemd.
+Type=notify
+NotifyAccess=all
+
+User=obs-stress
+Group=obs-stress
+
+# /run/obs-stress, for state.json. 0755 so obs-agent can read it.
+RuntimeDirectory=obs-stress
+RuntimeDirectoryMode=0755
+
+# "+" = run as root: make sure the scratch dir exists and is owned by obs-stress
+ExecStartPre=+/usr/bin/install -d -o obs-stress -g obs-stress -m 0750 /var/tmp/obs-stress
+ExecStart=/opt/obs-agent/stress/stress_loop.sh
+
+# Crash handling: restart on any exit, and if no WATCHDOG=1 ping arrives
+# for 30 s systemd kills and restarts the service (script pings every 5 s).
+Restart=always
+RestartSec=5
+WatchdogSec=30
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target
