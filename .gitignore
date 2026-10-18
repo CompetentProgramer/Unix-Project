@@ -1,0 +1,20 @@
+# Secrets and local config
+.env
+*.env
+dashboard/servers.yaml
+dashboard/thresholds.json
+
+# Local data
+*.db
+*.sqlite
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
