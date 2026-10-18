@@ -55,7 +55,7 @@ set_args() {
     cpu)     ARGS=(--cpu 0) ;;                                        # all cores
     memory)  ARGS=(--vm 2 --vm-bytes 30% --vm-method all) ;;          # ~60% of RAM max
     io)      ARGS=(--io 2) ;;                                         # sync() pressure
-    disk)    ARGS=(--hdd 2 --hdd-bytes 512m --temp-path "$SCRATCH") ;;
+    disk)    ARGS=(--hdd 2 --hdd-bytes 512m) ;;
     network) ARGS=(--sock 2 --sock-port 15000) ;;                     # loopback traffic
     *)       return 1 ;;
   esac
@@ -73,7 +73,7 @@ ping_sleep() {
 }
 
 run_stress() {   # class duration
-  local class=$1 dur=$2 now tick=0
+  local class=$1 dur=$2 now tick=0 rc
   set_args "$class" || return 1
   now=$(date +%s)
   write_state "$class" "$now" $(( now + dur ))
@@ -81,7 +81,8 @@ run_stress() {   # class duration
   log "start class=$class duration=${dur}s"
 
   # nice keeps this script (and its watchdog pings) responsive under CPU load
-  nice -n 10 stress-ng "${ARGS[@]}" --timeout "${dur}s" >/dev/null 2>&1 &
+  # stdout discarded; stderr goes to the journal so failures are visible
+  nice -n 10 stress-ng "${ARGS[@]}" --temp-path "$SCRATCH" --timeout "${dur}s" >/dev/null &
   CHILD=$!
 
   while kill -0 "$CHILD" 2>/dev/null; do
@@ -95,14 +96,16 @@ run_stress() {   # class duration
     tick=$(( tick + 1 ))
   done
   wait "$CHILD" 2>/dev/null
+  rc=$?
   CHILD=""
   clear_state
-  log "end class=$class"
+  log "end class=$class exit=$rc"
 }
 
 # ---------------------------------------------------------------- main
 command -v stress-ng >/dev/null || { log "stress-ng not installed"; exit 1; }
 mkdir -p "$SCRATCH" 2>/dev/null
+cd "$SCRATCH" || { log "cannot enter $SCRATCH"; exit 1; }   # stress-ng needs a writable cwd
 
 notify READY=1
 log "ready"
