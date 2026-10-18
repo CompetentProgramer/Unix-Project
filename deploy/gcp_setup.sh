@@ -16,6 +16,10 @@ FW_AGENT="obs-allow-agent" # dashboard IP -> tcp:AGENT_PORT
 FW_SSH="obs-allow-ssh-iap" # Google IAP range -> tcp:22
 IAP_RANGE="35.235.240.0/20"
 
+MACHINE="${MACHINE:-e2-small}"
+IMAGE_FAMILY="${IMAGE_FAMILY:-ubuntu-2404-lts-amd64}"
+IMAGE_PROJECT="ubuntu-os-cloud"
+
 die()  { echo "error: $*" >&2; exit 1; }
 info() { echo "==> $*"; }
 
@@ -87,8 +91,43 @@ cmd_firewall() {
   fi
 }
 
+cmd_vm() {
+  local n="${1:-}"
+  [[ "$n" =~ ^[1-9][0-9]*$ ]] || die "usage: $0 vm N   (N = your member number, e.g. 4)"
+  local vm="obs-srv-$n" addr="obs-ip-$n"
+
+  if has gcloud compute addresses describe "$addr" --region "$REGION"; then
+    info "Static IP $addr already exists"
+  else
+    info "Reserving static IP $addr"
+    run gcloud compute addresses create "$addr" --region="$REGION" --project "$PROJECT"
+  fi
+
+  if has gcloud compute instances describe "$vm" --zone "$ZONE"; then
+    info "VM $vm already exists"
+  else
+    info "Creating VM $vm ($MACHINE, $IMAGE_FAMILY)"
+    run gcloud compute instances create "$vm" \
+      --zone="$ZONE" --machine-type="$MACHINE" \
+      --subnet="$SUBNET" --address="$addr" \
+      --image-family="$IMAGE_FAMILY" --image-project="$IMAGE_PROJECT" \
+      --boot-disk-size=20GB --tags="$TAG" --project "$PROJECT"
+  fi
+
+  if [[ -z "${DRY_RUN:-}" ]]; then
+    local ext
+    ext="$(gcloud compute addresses describe "$addr" --region "$REGION" \
+      --project "$PROJECT" --format='value(address)')"
+    echo
+    echo "VM $vm is up. Static IP: $ext"
+    echo "Next:"
+    echo "  gcloud compute ssh $vm --zone $ZONE --tunnel-through-iap"
+  fi
+}
+
 case "${1:-}" in
   network)  shift; cmd_network "$@" ;;
   firewall) shift; cmd_firewall "$@" ;;
-  *) echo "usage: $0 {network|firewall <DASHBOARD_IP>}" >&2; exit 1 ;;
+  vm)       shift; cmd_vm "$@" ;;
+  *) echo "usage: $0 {network|firewall <DASHBOARD_IP>|vm N}" >&2; exit 1 ;;
 esac
