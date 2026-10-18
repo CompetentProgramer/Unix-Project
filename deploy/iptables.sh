@@ -1,22 +1,28 @@
 #!/usr/bin/env bash
 # iptables.sh - host firewall for the agent port (defense in depth behind the GCP firewall).
-# Usage: sudo deploy/iptables.sh <DASHBOARD_IP>
-# tcp/AGENT_PORT accepts only localhost (the cron watchdog) and the dashboard IP.
+# Usage: sudo deploy/iptables.sh <DASHBOARD_IP> [MORE_IPS...]
+# tcp/AGENT_PORT accepts only localhost (the cron watchdog) and the IPs you list.
 # SSH and everything else are untouched, so this cannot lock you out. Safe to re-run.
+# Each run replaces the previous list, so always pass every IP you want allowed.
 set -euo pipefail
 
 AGENT_PORT="${AGENT_PORT:-8090}"
 CHAIN="OBS_AGENT"
-DASH_IP="${1:-}"
 
 [[ $EUID -eq 0 ]] || { echo "run as root (sudo)" >&2; exit 1; }
-[[ "$DASH_IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || { echo "usage: $0 <DASHBOARD_IP>" >&2; exit 1; }
+[[ $# -ge 1 ]] || { echo "usage: $0 <DASHBOARD_IP> [MORE_IPS...]" >&2; exit 1; }
+
+for ip in "$@"; do
+  [[ "$ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || { echo "bad IP: $ip" >&2; exit 1; }
+done
 
 # Our own chain: create it if missing, otherwise empty it.
 iptables -w -N "$CHAIN" 2>/dev/null || iptables -w -F "$CHAIN"
 
 iptables -w -A "$CHAIN" -i lo -j ACCEPT
-iptables -w -A "$CHAIN" -s "$DASH_IP" -j ACCEPT
+for ip in "$@"; do
+  iptables -w -A "$CHAIN" -s "$ip" -j ACCEPT
+done
 iptables -w -A "$CHAIN" -j DROP
 
 # Send agent-port traffic through the chain (added only once).
@@ -32,5 +38,5 @@ else
   echo "warning: netfilter-persistent not installed; rules will be lost on reboot" >&2
 fi
 
-echo "tcp/$AGENT_PORT now accepts only localhost and $DASH_IP"
+echo "tcp/$AGENT_PORT now accepts only localhost and: $*"
 iptables -w -L "$CHAIN" -n -v

@@ -65,18 +65,22 @@ cmd_network() {
 }
 
 cmd_firewall() {
-  local ip="${1:-}"
-  valid_ipv4 "$ip" || die "usage: $0 firewall <DASHBOARD_IP>"
+  [[ $# -ge 1 ]] || die "usage: $0 firewall <DASHBOARD_IP> [MORE_IPS...]"
+  local ranges="" ip
+  for ip in "$@"; do
+    valid_ipv4 "$ip" || die "'$ip' is not a valid IPv4 address"
+    ranges+="${ranges:+,}$ip/32"
+  done
 
   if has gcloud compute firewall-rules describe "$FW_AGENT"; then
-    info "Updating $FW_AGENT: tcp:$AGENT_PORT allowed only from $ip/32"
+    info "Updating $FW_AGENT: tcp:$AGENT_PORT allowed only from $ranges"
     run gcloud compute firewall-rules update "$FW_AGENT" \
-      --source-ranges="$ip/32" --project "$PROJECT"
+      --source-ranges="$ranges" --project "$PROJECT"
   else
-    info "Creating $FW_AGENT: tcp:$AGENT_PORT allowed only from $ip/32"
+    info "Creating $FW_AGENT: tcp:$AGENT_PORT allowed only from $ranges"
     run gcloud compute firewall-rules create "$FW_AGENT" \
       --network="$NETWORK" --direction=INGRESS --action=ALLOW \
-      --rules="tcp:$AGENT_PORT" --source-ranges="$ip/32" \
+      --rules="tcp:$AGENT_PORT" --source-ranges="$ranges" \
       --target-tags="$TAG" --project "$PROJECT"
   fi
 
