@@ -36,7 +36,7 @@ has() {
   [[ -z "${DRY_RUN:-}" ]] && "$@" --project "$PROJECT" >/dev/null 2>&1
 }
 
-# Secceeds only for a valid IPv4 address
+# Succeeds only for a valid IPv4 address
 valid_ipv4() {
   local ip="$1" o
   [[ "$ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || return 1
