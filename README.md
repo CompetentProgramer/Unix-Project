@@ -1,84 +1,65 @@
-Linux Infrastructure Observability Dashboard
-Project Objective
-The primary objective of this collaboritive (group) project is to design, implement, and
-evaluate a performance monitoring solution for a remote, cloud-based Linux
-infrastructure based on number real-world stresses that affect production servers.
+# Linux Infrastructure Observability Dashboard
 
-Project Requirements
-• Cloud-Based Deployment: A VPC and Ubuntu or Debian Linux server vm must
-be deployed to the Google Cloud Platform.
-• Simulated Load: The utility stress-ng will be deployed in a custom bash script
-that will alternately generate high loads of differing time intervals and differing
-classes (ie cpu, io, filesystem, memory, etc). You may optionally select five (5)
-classes to stress.
-• Systemd: Create a systemd service for the stress-ng script that will
-automatically start as a service whenever server is rebooted. The service to be
-configured with Restart=always and a WatchdogSec parameter to handle
-crashes.
-• API/Agent: Create an agent and/or API to allow a remote monitoring solution to
-collect system statistics (ie memory usage, cpu usage, etc). You may choose
-five (5) parameters to monitor and collect. The API or Agent should be custom
-designed and can be developed with Bash, Python, or any other language.
-• Named Pipes: Utilized named pipes in your solution and identify how it is used
-in your report.
-• Users and Groups: Create a unique user and/or group assigned to your
-API/Agent.
-• Remote Monitoring: Dashboard GUI must remotely monitor performance
-metrics of Linux server. Dashboard must be custom designed and can be
-developed with Bash, Python, or any other language. You may use existing
-libraries such as Django, tKinter or plotly. Dashboard may run from your laptop,
-personal computer or another GCP virtual machine.
-• Key Performance Metrics: Monitor essential metrics (ie CPU, memory, disk,
-network – total of five (5)).
-• Data Visualization: Dashboard must visually represent performance data using
-appropriate charts and graphs (real-time and historical data).
-• Data Collection Automation: Data collection from the monitored server(s)
-must be automated (scripted) by starting app on laptop.
-• Notification System: based on performance thresholds. Provide user
-adjustable thresholds to notify user if threshold is surpassed. This can be a
-message box or color change in the dashboard.
-• Security: Implement a firewall, iptables, or VPC configuration to limit agent/api
-access to a single IP address.
-• Failure Handling: Implement appropriate failure handling mechanisms to
-monitor operation of agent or api to restart automatically. Use a cron job to
-check their status every 5 minutes.
-• Version Control: Use a Git or Github repository to manage version control for all
-code development branches and collaboration. All team members will have
-access to repository and make meaningful updates to the code base reflected
-by numerous commits. The commits should tell a story of about the progress.
-• Multiple Servers: Each group member must be responsible for a cloud based
-server deployment. If two students work together, then there shall be two
-servers and one dashboard. For three students, then have three servers and one
-dashboard.
+Four GCP Ubuntu VMs, each running a custom Python metrics agent and a `stress-ng` load
+generator, monitored by one custom Dash dashboard. No off-the-shelf monitoring tools are used.
+The original assignment is in `docs/ASSIGNMENT.md`.
 
-Project Deliverables
-• Report: Submit a modest project report in doc or pdf, that includes:
-o Cover page that includes name of project, github url (public), date, course
-section and each member’s name
-o Introduction and project objectives (1 paragraph)
-o System architecture and design (1-2 paragraphs and diagrams)
-o Experimental results and analysis presented in captioned diagrams, graphs
-and screenshots from dashboard. Each should be supported with 1 – 2
-sentences each.
-o Problems faced (1 -2 paragraphs)
-o What was learned (1 paragraph from each team member)
-o Individual contribution table (displays activity type and percentage of effort
-for each team member)
-• Code: Submit well-commented and organized source code for the stress script,
-agent or api, cron job, and dashboard as the url of the repository in the report. Do
-not upload source code to Canvas.
-• Video operation: Prepare a screen recorded video with or without narration.
-o Display the dashboard in action. 1 -2 minute
-o Manually stop the api or agent to demonstrate automatic restart.
-o Start a stress event and display the appropriate dashboard.
-• Go Live Test Day: Professor will review each student/group to view a live test of
-your dashboard. Professor will interview each student about your contribution and
-comprehension of the project code.
+## Layout
 
-Additional Notes:
-• Do not use an off-the shelf monitoring system like Nagios, Splunk, or GCP’s vm
-monitoring tools. Develop your own data collection tools.
-• You may use libraries or frameworks to assist in developing a remote
-dashboard.
-Reference:
-https://wiki.ubuntu.com/Kernel/Reference/stress-ng
+```text
+agent/       collector, API process, launcher, systemd unit, cron watchdog   (Member 1 / 2)
+stress/      stress_loop.sh and its systemd unit                             (Member 2)
+dashboard/   Dash app, poller, SQLite code                                   (Member 3)
+deploy/      GCP, VM and firewall scripts, watchdog cron file                (Member 4)
+docs/        INTERFACES.md (contract between pieces), COMMANDS.md, assignment
+report/      screenshots and the contribution log for the final report
+```
+
+## Quick start (deployment)
+
+One teammate sets up the shared network once; everyone else skips to step 3.
+Run steps 1 to 3 in the Codespace, and steps 4 and 5 on the VM.
+
+```bash
+# 1. Network (once)
+deploy/gcp_setup.sh network
+
+# 2. Firewall: allow the agent port from the dashboard's public IP only
+deploy/gcp_setup.sh firewall <DASHBOARD_PUBLIC_IP>
+
+# 3. Your VM (N = your member number, 1-4)
+deploy/gcp_setup.sh vm N
+
+# 4. On the VM
+gcloud compute ssh obs-srv-N --zone us-central1-a --tunnel-through-iap
+git clone https://github.com/CompetentProgramer/Unix-Project && cd Unix-Project
+sudo deploy/setup_vm.sh <DASHBOARD_PUBLIC_IP>
+
+# 5. From the dashboard machine
+deploy/verify.sh <VM_IP> <API_KEY>
+```
+
+Use a public IP, not a private one (10.x, 172.16-31.x, 192.168.x); private addresses never
+match internet traffic. Put `DRY_RUN=1` before `deploy/gcp_setup.sh` to print the `gcloud`
+commands without running them.
+
+If the dashboard's public IP changes (new network, VPN), run
+`deploy/gcp_setup.sh set-dashboard-ip <NEW_IP>`. It updates the GCP firewall and the
+`iptables` rules on every running VM.
+
+After pulling new code, rerun `sudo deploy/setup_vm.sh <DASHBOARD_PUBLIC_IP>` on each VM.
+It is safe to rerun and keeps the existing API key. See `docs/COMMANDS.md` for every command.
+
+## Security
+
+- GCP firewall: TCP 8090 only from the dashboard IP; SSH only from the IAP range.
+- `iptables` chain `OBS_AGENT` on each VM repeats the same restriction.
+- Every VM has its own API key (`/etc/obs-agent/agent.env`). Never commit or paste keys.
+
+## Git workflow
+
+- `main` always works. Work on a branch named `area/short-description`
+  (for example `agent/named-pipe`) and merge by pull request, reviewed by a teammate.
+- Small commits with an imperative message that says what changed and why.
+- Never commit API keys, `servers.yaml`, or `*.db` files (see `.gitignore`).
+- Add a line to `report/contribution-log.md` when you finish a piece of work.
