@@ -21,6 +21,8 @@ ExecStart=/opt/obs-agent/stress/stress_loop.sh
 
 # Crash handling: restart on any exit, and if no WATCHDOG=1 ping arrives
 # for 30 s systemd kills and restarts the service (script pings every 5 s).
+# exit 143 = our clean shutdown on SIGTERM (systemctl stop); not a failure
+SuccessExitStatus=143
 Restart=always
 RestartSec=5
 WatchdogSec=30
