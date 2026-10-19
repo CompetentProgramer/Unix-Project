@@ -10,14 +10,14 @@ class DataHold:
         self.s1cpu = self.fill_queue_zeros()
         self.s1memory = self.fill_queue_zeros()
         self.s1network = self.fill_queue_zeros()
-        self.s1swap = self.fill_queue_zeros()
+        self.s1load = self.fill_queue_zeros()
         self.s1disk = self.fill_queue_zeros()
         self.s2cpu = self.fill_queue_zeros()
         self.s2memory = self.fill_queue_zeros()
         self.s2network = self.fill_queue_zeros()
         self.s2swap = self.fill_queue_zeros()
-        self.s2disk = self.fill_queue_zeros()
-    def fill_queue_zeros(self):    
+        self.s2load = self.fill_queue_zeros()
+    def fill_queue_zeros(self):
         for i in range(self._len):
             q = Queue(self._len)
             q.put(0)
@@ -92,7 +92,6 @@ class GCP_Moniter:
         tbtn.grid(row=1, column=2, padx=5, ipady=5, sticky="nsew")
 
 
-
         # --- 3. SCREEN CONTAINERS ---
         # Both screens occupy the exact same grid cell (row=1, column=0)
         self.screen1 = tk.Frame(self.root)
@@ -136,8 +135,21 @@ class GCP_Moniter:
     # --- SCREEN 1 PLOTS (Set A) ---
     def create_screen1_charts(self):
         x = np.linspace(0, 10, 100)
-        self.embed_chart(self.screen1, 0, 0, lambda ax: ax.plot(x[:len(self.data.s1cpu.queue)], list(self.data.s1cpu.queue), 'r'), "CPU Usage")
-        
+        self.embed_chart(self.screen1, 0, 0,
+                         lambda ax: (ax.plot(x[:len(self.data.s1cpu.queue)], list(self.data.s1cpu.queue), 'r'),
+                                     ax.set_ylim(0, 100)), "CPU Usage")
+        self.embed_chart(self.screen1, 0, 1,
+                         lambda ax: (ax.plot(x[:len(self.data.s1memory.queue)], list(self.data.s1memory.queue), 'r'),
+                                     ax.set_ylim(0, 100)), "Memory Usage")
+        self.embed_chart(self.screen1, 0, 2,
+                         lambda ax: (ax.plot(x[:len(self.data.s1disk.queue)], list(self.data.s1disk.queue), 'r')
+                                     ), "Disk IO Mbps")
+        self.embed_chart(self.screen1, 1, 0,
+                         lambda ax: (ax.plot(x[:len(self.data.s1network.queue)], list(self.data.s1network.queue), 'r')
+                                     ), "Network Usage Kbps")
+        self.embed_chart(self.screen1, 1, 1,
+                         lambda ax: (ax.plot(x[:len(self.data.s1load.queue)], list(self.data.s1load.queue), 'r')
+                                     ), "Load 1m")
 
 
     def setThresholds(self):
@@ -148,7 +160,7 @@ class GCP_Moniter:
 
     def checkThresholds(self):
         # logic need update
-        if True:
+        if self.cputhreshold < self.data.s1cpu[-1]:
             self.tnoti.configure(text="Past CPU Threshold!", bg="red")
         if False:
             self.tnoti.configure(text="Past Memory Threshold!", bg="red")
