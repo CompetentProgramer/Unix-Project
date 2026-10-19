@@ -3,26 +3,26 @@ import requests
 import json
 
 #Server1 Settings
-API_URL1 = "http://136.64.246.156:8090"
-API_KEY1 = os.environ.get("OBS_API_KEY", "Add API Key here")
+API_URL1 = "http://<add server ip adder here>:8090"
+API_KEY1 = os.environ.get("OBS_API_KEY", "Add API Key Here")
 headers1 = {
     "X-API-Key": API_KEY1
 }
 #Server2 Settings
-API_URL2 = "http://136.64.246.156:8090"
-API_KEY2 = os.environ.get("OBS_API_KEY", "Add API Key here")
+API_URL2 = "http://<add server ip adder here>:8090"
+API_KEY2 = os.environ.get("OBS_API_KEY", "Add API Key Here")
 headers2 = {
     "X-API-Key": API_KEY2
 }
 #Server3 settings
-API_URL3 = "http://136.64.246.156:8090"
-API_KEY3 = os.environ.get("OBS_API_KEY", "Add API Key here")
+API_URL3 = "http://<add server ip adder here>:8090"
+API_KEY3 = os.environ.get("OBS_API_KEY", "Add API Key Here")
 headers3 = {
     "X-API-Key": API_KEY3
 }
 #Server4 Settings
-API_URL4 = "http://136.64.246.156:8090"
-API_KEY4 = os.environ.get("OBS_API_KEY", "Add API Key here")
+API_URL4 = "http://<add server ip adder here>:8090"
+API_KEY4 = os.environ.get("OBS_API_KEY", "Add API Key Here")
 headers4 = {
     "X-API-Key": API_KEY4
 }

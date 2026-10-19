@@ -1,5 +1,4 @@
 ﻿import tkinter as tk
-from queue import Queue
 from collections import deque
 import numpy as np
 from matplotlib.figure import Figure
@@ -29,17 +28,11 @@ class DataHold:
         self.s4network =    deque([0]*self._len, maxlen=self._len)
         self.s4load =       deque([0]*self._len, maxlen=self._len)
         self.s4disk =       deque([0]*self._len, maxlen=self._len)
-        
-    def fill_queue_zeros(self):
-        for i in range(self._len):
-            q = Queue(self._len)
-            q.append(0)
-        return q
+
 
     def update1(self):
         temp = APICaller.pollerFunc(1)
         self.s1cpu.append(temp["cpu_percent"])
-        print("cpu_percent"+str(self.s1cpu))
         self.s1memory.append(temp["mem_percent"])
         self.s1disk.append(temp["disk_io_mbps"])
         self.s1network.append(temp["net_kbps"])
@@ -88,16 +81,16 @@ class GCP_Moniter:
             button_frame.columnconfigure(i, weight=1)
 
         # Control buttons
-        btn1 = tk.Button(button_frame, text="Screen 1 (Set A)", command=lambda: self.show_screen(self.screen1))
+        btn1 = tk.Button(button_frame, text="Server 1", command=lambda: self.show_screen(self.screen1))
         btn1.grid(row=0, column=0, padx=5, ipady=5, sticky="ew")
 
-        btn2 = tk.Button(button_frame, text="Screen 2 (Set B)", command=lambda: self.show_screen(self.screen2))
+        btn2 = tk.Button(button_frame, text="Server 2", command=lambda: self.show_screen(self.screen2))
         btn2.grid(row=0, column=1, padx=5, ipady=5, sticky="ew")
 
-        btn3 = tk.Button(button_frame, text="Button 3 (Custom Action)", command=lambda: self.show_screen(self.screen3))
+        btn3 = tk.Button(button_frame, text="Server 3", command=lambda: self.show_screen(self.screen3))
         btn3.grid(row=0, column=2, padx=5, ipady=5, sticky="ew")
 
-        btn4 = tk.Button(button_frame, text="Button 4 (Custom Action)", command=lambda: self.show_screen(self.screen4))
+        btn4 = tk.Button(button_frame, text="Server 4", command=lambda: self.show_screen(self.screen4))
         btn4.grid(row=0, column=3, padx=5, ipady=5, sticky="ew")
 
         # --- 2. CPU THRESHOLD BAR ---
@@ -176,6 +169,7 @@ class GCP_Moniter:
 
         line = ax.get_lines()[0]
         ax.set_title(title, fontsize=10)
+        ax.set_xticklabels([])
         fig.tight_layout()
 
         # Link Matplotlib canvas to Tkinter
@@ -196,10 +190,10 @@ class GCP_Moniter:
                                      ax.set_ylim(0, 100)), "Memory Usage")
         self.mon1disk = self.embed_chart(self.screen1, 0, 2,
                          lambda ax: (ax.plot(self.x[:len(self.data.s1disk)], list(self.data.s1disk), 'r'),
-                                     ax.set_ylim(0, 500)), "Disk IO Mbps")
+                                     ax.set_ylim(0, 120)), "Disk IO Mbps")
         self.mon1net = self.embed_chart(self.screen1, 1, 0,
                          lambda ax: (ax.plot(self.x[:len(self.data.s1network)], list(self.data.s1network), 'r'),
-                                     ax.set_ylim(0, 2000000)), "Network Usage Kbps")
+                                     ax.set_ylim(0, 3.5)), "Network Usage Kbps")
         self.mon1load =self.embed_chart(self.screen1, 1, 1,
                          lambda ax: (ax.plot(self.x[:len(self.data.s1load)], list(self.data.s1load), 'r'),
                                      ax.set_ylim(0, 5)), "Load 1m")
@@ -212,10 +206,10 @@ class GCP_Moniter:
                                      ax.set_ylim(0, 100)), "Memory Usage (S2)")
         self.mon2disk = self.embed_chart(self.screen2, 0, 2,
                          lambda ax: (ax.plot(self.x[:len(self.data.s2disk)], list(self.data.s2disk), 'r'),
-                                     ax.set_ylim(0, 500)), "Disk IO Mbps (S2)")
+                                     ax.set_ylim(0, 120)), "Disk IO Mbps (S2)")
         self.mon2net = self.embed_chart(self.screen2, 1, 0,
                          lambda ax: (ax.plot(self.x[:len(self.data.s2network)], list(self.data.s2network), 'r'),
-                                     ax.set_ylim(0, 2000000)), "Network Usage Kbps (S2)")
+                                     ax.set_ylim(0, 3.5)), "Network Usage Kbps (S2)")
         self.mon2load =self.embed_chart(self.screen2, 1, 1,
                          lambda ax: (ax.plot(self.x[:len(self.data.s2load)], list(self.data.s2load), 'r'),
                                      ax.set_ylim(0, 5)), "Load 1m (S2)")
@@ -231,11 +225,11 @@ class GCP_Moniter:
         self.mon3disk = self.embed_chart(self.screen3, 0, 2,
                                          lambda ax: (
                                              ax.plot(self.x[:len(self.data.s3disk)], list(self.data.s3disk),'r'),
-                                             ax.set_ylim(0, 500)), "Disk IO Mbps (S3)")
+                                             ax.set_ylim(0, 120)), "Disk IO Mbps (S3)")
         self.mon3net = self.embed_chart(self.screen3, 1, 0,
                                         lambda ax: (ax.plot(self.x[:len(self.data.s3network)],
                                                             list(self.data.s3network), 'r'),
-                                                    ax.set_ylim(0, 2000000)), "Network Usage Kbps (S3)")
+                                                    ax.set_ylim(0, 3.5)), "Network Usage Kbps (S3)")
         self.mon3load = self.embed_chart(self.screen3, 1, 1,
                                          lambda ax: (
                                              ax.plot(self.x[:len(self.data.s3load)], list(self.data.s3load),'r'),
@@ -249,10 +243,10 @@ class GCP_Moniter:
                                      ax.set_ylim(0, 100)), "Memory Usage (S4)")
         self.mon4disk = self.embed_chart(self.screen4, 0, 2,
                          lambda ax: (ax.plot(self.x[:len(self.data.s4disk)], list(self.data.s4disk), 'r'),
-                                     ax.set_ylim(0, 500)), "Disk IO Mbps (S4)")
+                                     ax.set_ylim(0, 120)), "Disk IO Mbps (S4)")
         self.mon4net = self.embed_chart(self.screen4, 1, 0,
                          lambda ax: (ax.plot(self.x[:len(self.data.s4network)], list(self.data.s4network), 'r'),
-                                     ax.set_ylim(0, 2000000)), "Network Usage Kbps (S4)")
+                                     ax.set_ylim(0, 3.5)), "Network Usage Kbps (S4)")
         self.mon4load =self.embed_chart(self.screen4, 1, 1,
                          lambda ax: (ax.plot(self.x[:len(self.data.s4load)], list(self.data.s4load), 'r'),
                                      ax.set_ylim(0, 5)), "Load 1m (S4)")
@@ -323,9 +317,9 @@ class GCP_Moniter:
 
     def checkThresholds(self):
         # logic need update
-        if self.cputhreshold < self.data.s1cpu[99]:
+        if self.cputhreshold < self.data.s1cpu[99] or self.cputhreshold < self.data.s2cpu[99] or self.cputhreshold < self.data.s3cpu[99] or self.cputhreshold < self.data.s4cpu[99]:
             self.tnoti.configure(text="Past CPU Threshold!", bg="red")
-        elif self.memorythreshold < self.data.s1memory[99]:
+        elif self.memorythreshold < self.data.s1memory[99] or self.memorythreshold < self.data.s2memory[99] or self.memorythreshold < self.data.s3memory[99] or self.memorythreshold < self.data.s4memory[99]:
             self.tnoti.configure(text="Past Memory Threshold!", bg="red")
         else:
             self.tnoti.configure(text="Status Okay", bg="#f0f0f0")
@@ -337,7 +331,7 @@ class GCP_Moniter:
         self.update_charts4()
         self.checkThresholds()
 
-        self.root.after(500, self.UpdateProcess)
+        self.root.after(1000, self.UpdateProcess)
 
 # Run the app
 if __name__ == "__main__":
