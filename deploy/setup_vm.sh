@@ -62,16 +62,10 @@ for unit in agent/obs-agent.service stress/obs-stress.service; do
 done
 
 info "Installing cron watchdog (every 5 minutes) and log rotation"
-if [[ -x "$APP_DIR/agent/watchdog.sh" ]]; then
-  cat > /etc/cron.d/obs-watchdog <<EOF
-# Managed by deploy/setup_vm.sh. Checks the agent every 5 minutes and restarts it if needed.
-SHELL=/bin/bash
-PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-*/5 * * * * root $APP_DIR/agent/watchdog.sh >> /var/log/obs-watchdog.log 2>&1
-EOF
-  chmod 644 /etc/cron.d/obs-watchdog
+if [[ -x "$APP_DIR/agent/watchdog.sh" && -f "$REPO_DIR/deploy/obs-watchdog.cron" ]]; then
+  install -m 644 -o root -g root "$REPO_DIR/deploy/obs-watchdog.cron" /etc/cron.d/obs-watchdog
 else
-  warn "agent/watchdog.sh not in the repo yet; cron entry skipped"
+  warn "agent/watchdog.sh or deploy/obs-watchdog.cron missing; cron entry skipped"
 fi
 cat > /etc/logrotate.d/obs-watchdog <<'EOF'
 /var/log/obs-watchdog.log {
