@@ -17,7 +17,7 @@ Testing, Documentation, Report, Video.
 | Member | Main activities | % of effort |
 | --- | --- | --- |
 | Member 1 | | |
-| Member 2 | | |
+| Member 2 | load generation and Uptime / failure handling | 25% |
 | Member 3 | | |
 | Member 4 | | |
 | **Total** | | **100%** |
