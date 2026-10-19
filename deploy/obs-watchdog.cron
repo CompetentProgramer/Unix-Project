@@ -1,0 +1,4 @@
+# Installed to /etc/cron.d/obs-watchdog (root:root, mode 644)
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+*/5 * * * * root /opt/obs-agent/agent/watchdog.sh
