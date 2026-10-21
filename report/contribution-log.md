@@ -15,6 +15,11 @@ Testing, Documentation, Report, Video.
 | 2026-10-18 | Member 3 | Dashboard | Created Dashboard app using python; Integrated threshold notifier; Created server poller| 4.5 |
 | 2026-10-19 | Member 4 | Testing | Troubleshooting problems for final code | 2 |
 | 2026-10-20/21 | Member 4 | Testing | Troubleshooting problems for final code. Again... | 5 |
+| 2026-10-17 | Member 1 | Cloud Setup | Created the GCP project and set permissions for every user. Understood the requirements of the Project and started necessary research | 1 |
+| 2026-10-17 | Member 1 | Agent folder|Created the whole /agent folder. Developed the five-metric collector, named-pipe communication, API endpoints, launcher script, and agent systemd service.| 4 |
+| 2026-10-17 | Member 1 | Tests | Passed all five API verification checks and confirmed automatic service recovery after killing the collector..| 1 |
+
+
 
 
 ## Final effort summary
