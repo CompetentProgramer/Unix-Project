@@ -6,7 +6,7 @@ generator, monitored by one custom Python (Tkinter) dashboard. No off-the-shelf 
 ## Layout
 
 ```text
-agent/       collector, API process, launcher, systemd unit, cron watchdog   (Member 1 / 2)
+agent/       collector, API process, launcher, systemd unit, cron watchdog   (Richard/ 2)
 stress/      stress_loop.sh and its systemd unit                             (Member 2)
 dashboard/   Tkinter app, poller, history database                                   (Member 3)
 deploy/      GCP, VM and firewall scripts, watchdog cron file                (Member 4)
