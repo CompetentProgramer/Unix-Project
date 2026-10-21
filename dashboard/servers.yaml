@@ -1,0 +1,12 @@
+server1:
+  api_url: "http://34.56.132.73:8090"
+  api_key: "e5156b0ab47f8e83962a63efe81d8fdc"
+server2:
+  api_url: "http://35.253.39.31:8090"
+  api_key: "e5156b0ab47f8e83962a63efe81d8fdc"
+server3:
+  api_url: "http://136.64.246.156:8090"
+  api_key: "55ac1d38910b771984d965d90d3c8ef0"
+server4:
+  api_url: "http://34.122.63.242:8090"
+  api_key: "e5156b0ab47f8e83962a63efe81d8fdc"
