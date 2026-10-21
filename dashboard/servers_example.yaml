@@ -1,0 +1,13 @@
+﻿server1:
+  api_url: "http://34.56.132.73:8090"
+  api_key: "<API_KEY_GOES_HERE>"
+server2:
+  api_url: "http://35.253.39.31:8090"
+  api_key: "<API_KEY_GOES_HERE>"
+server3:
+  api_url: "http://136.64.246.156:8090"
+  api_key: "<API_KEY_GOES_HERE>"
+server4:
+  api_url: "http://34.122.63.242:8090"
+  api_key: "<API_KEY_GOES_HERE>"
+

@@ -1,28 +1,38 @@
 ﻿import os
 import requests
 import json
+import yaml
+
+with open('servers.yaml') as f:
+    servers = yaml.safe_load(f)
+server_data = []
+for i, data in servers.items():
+    server_data.append({
+        "Api_URL": data["api_url"],
+        "Api_Key": data["api_key"],
+    })
 
 #Server1 Settings
-API_URL1 = "http://<add server ip adder here>:8090"
-API_KEY1 = os.environ.get("OBS_API_KEY", "Add API Key Here")
+API_URL1 = server_data[0]["Api_URL"]
+API_KEY1 = os.environ.get("OBS_API_KEY", server_data[0]["Api_Key"])
 headers1 = {
     "X-API-Key": API_KEY1
 }
 #Server2 Settings
-API_URL2 = "http://<add server ip adder here>:8090"
-API_KEY2 = os.environ.get("OBS_API_KEY", "Add API Key Here")
+API_URL2 = server_data[1]["Api_URL"]
+API_KEY2 = os.environ.get("OBS_API_KEY", server_data[1]["Api_Key"])
 headers2 = {
     "X-API-Key": API_KEY2
 }
 #Server3 settings
-API_URL3 = "http://<add server ip adder here>:8090"
-API_KEY3 = os.environ.get("OBS_API_KEY", "Add API Key Here")
+API_URL3 = server_data[2]["Api_URL"]
+API_KEY3 = os.environ.get("OBS_API_KEY", server_data[2]["Api_Key"])
 headers3 = {
     "X-API-Key": API_KEY3
 }
 #Server4 Settings
-API_URL4 = "http://<add server ip adder here>:8090"
-API_KEY4 = os.environ.get("OBS_API_KEY", "Add API Key Here")
+API_URL4 = server_data[3]["Api_URL"]
+API_KEY4 = os.environ.get("OBS_API_KEY", server_data[3]["Api_Key"])
 headers4 = {
     "X-API-Key": API_KEY4
 }
@@ -30,17 +40,21 @@ headers4 = {
 def pollerFunc(i):
     print("pollerCalled")
     if i == 1:
-        metrics_response = requests.get(f"{API_URL1}/metrics", headers=headers1)
+        return pollerHelper(API_URL1, headers1)
     elif i == 2:
-        metrics_response = requests.get(f"{API_URL2}/metrics", headers=headers2)
+        return pollerHelper(API_URL2, headers2)
     elif i == 3:
-        metrics_response = requests.get(f"{API_URL3}/metrics", headers=headers3)
+        return pollerHelper(API_URL3, headers3)
     elif i == 4:
-        metrics_response = requests.get(f"{API_URL4}/metrics", headers=headers4)
-    if metrics_response.status_code == 200:
-        print("Latest Metrics:", metrics_response.json())
+        return pollerHelper(API_URL4, headers4)
+
+def pollerHelper(_apiurl, _header):
+    try :
+        metrics_response = requests.get(f"{_apiurl}/metrics", headers=_header , timeout=(.5,10))
         return json.loads(metrics_response.text)
-    else:
-        print(f"Error {metrics_response.status_code}:", metrics_response.json())
-
-
+    except requests.exceptions.ConnectTimeout:
+        print(f"Timeout {_apiurl}/metrics")
+        return -1
+    except requests.exceptions.RequestException as e:
+        print(f"Error {_apiurl}/metrics", e)
+        return -1

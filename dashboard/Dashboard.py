@@ -8,21 +8,25 @@ import APICaller
 class DataHold:
     def __init__(self):
         self._len = 100
+        self.s1okay = True
         self.s1cpu =        deque([0]*self._len, maxlen=self._len)
         self.s1memory =     deque([0]*self._len, maxlen=self._len)
         self.s1network =    deque([0]*self._len, maxlen=self._len)
         self.s1load =       deque([0]*self._len, maxlen=self._len)
         self.s1disk =       deque([0]*self._len, maxlen=self._len)
+        self.s2okay = True
         self.s2cpu =        deque([0]*self._len, maxlen=self._len)
         self.s2memory =     deque([0]*self._len, maxlen=self._len)
         self.s2network =    deque([0]*self._len, maxlen=self._len)
         self.s2load =       deque([0]*self._len, maxlen=self._len)
         self.s2disk =       deque([0]*self._len, maxlen=self._len)
+        self.s3okay = True
         self.s3cpu =        deque([0]*self._len, maxlen=self._len)
         self.s3memory =     deque([0]*self._len, maxlen=self._len)
         self.s3network =    deque([0]*self._len, maxlen=self._len)
         self.s3load =       deque([0]*self._len, maxlen=self._len)
         self.s3disk =       deque([0]*self._len, maxlen=self._len)
+        self.s4okay = True
         self.s4cpu =        deque([0]*self._len, maxlen=self._len)
         self.s4memory =     deque([0]*self._len, maxlen=self._len)
         self.s4network =    deque([0]*self._len, maxlen=self._len)
@@ -32,35 +36,51 @@ class DataHold:
 
     def update1(self):
         temp = APICaller.pollerFunc(1)
-        self.s1cpu.append(temp["cpu_percent"])
-        self.s1memory.append(temp["mem_percent"])
-        self.s1disk.append(temp["disk_io_mbps"])
-        self.s1network.append(temp["net_kbps"])
-        self.s1load.append(temp["load_1m"])
+        if temp != -1:
+            self.s1cpu.append(temp["cpu_percent"])
+            self.s1memory.append(temp["mem_percent"])
+            self.s1disk.append(temp["disk_io_mbps"])
+            self.s1network.append(temp["net_kbps"])
+            self.s1load.append(temp["load_1m"])
+            self.s1okay =True
+        else:
+            self.s1okay = False
 
     def update2(self):
         temp = APICaller.pollerFunc(2)
-        self.s2cpu.append(temp["cpu_percent"])
-        self.s2memory.append(temp["mem_percent"])
-        self.s2disk.append(temp["disk_io_mbps"])
-        self.s2network.append(temp["net_kbps"])
-        self.s2load.append(temp["load_1m"])
+        if temp != -1:
+            self.s2cpu.append(temp["cpu_percent"])
+            self.s2memory.append(temp["mem_percent"])
+            self.s2disk.append(temp["disk_io_mbps"])
+            self.s2network.append(temp["net_kbps"])
+            self.s2load.append(temp["load_1m"])
+            self.s2okay =True
+        else:
+            self.s2okay = False
 
     def update3(self):
         temp = APICaller.pollerFunc(3)
-        self.s3cpu.append(temp["cpu_percent"])
-        self.s3memory.append(temp["mem_percent"])
-        self.s3disk.append(temp["disk_io_mbps"])
-        self.s3network.append(temp["net_kbps"])
-        self.s3load.append(temp["load_1m"])
+        if temp != -1:
+            self.s3cpu.append(temp["cpu_percent"])
+            self.s3memory.append(temp["mem_percent"])
+            self.s3disk.append(temp["disk_io_mbps"])
+            self.s3network.append(temp["net_kbps"])
+            self.s3load.append(temp["load_1m"])
+            self.s3okay =True
+        else:
+            self.s3okay = False
 
     def update4(self):
         temp = APICaller.pollerFunc(4)
-        self.s4cpu.append(temp["cpu_percent"])
-        self.s4memory.append(temp["mem_percent"])
-        self.s4disk.append(temp["disk_io_mbps"])
-        self.s4network.append(temp["net_kbps"])
-        self.s4load.append(temp["load_1m"])
+        if temp != -1:
+            self.s4cpu.append(temp["cpu_percent"])
+            self.s4memory.append(temp["mem_percent"])
+            self.s4disk.append(temp["disk_io_mbps"])
+            self.s4network.append(temp["net_kbps"])
+            self.s4load.append(temp["load_1m"])
+            self.s4okay =True
+        else:
+            self.s4okay = False
 class GCP_Moniter:
     def __init__(self, root):
         self.data = DataHold()
@@ -81,17 +101,17 @@ class GCP_Moniter:
             button_frame.columnconfigure(i, weight=1)
 
         # Control buttons
-        btn1 = tk.Button(button_frame, text="Server 1", command=lambda: self.show_screen(self.screen1))
-        btn1.grid(row=0, column=0, padx=5, ipady=5, sticky="ew")
+        self.btn1 = tk.Button(button_frame, text="Server 1", bg="green", command=lambda: self.show_screen(self.screen1))
+        self.btn1.grid(row=0, column=0, padx=5, ipady=5, sticky="ew")
 
-        btn2 = tk.Button(button_frame, text="Server 2", command=lambda: self.show_screen(self.screen2))
-        btn2.grid(row=0, column=1, padx=5, ipady=5, sticky="ew")
+        self.btn2 = tk.Button(button_frame, text="Server 2", bg="green", command=lambda: self.show_screen(self.screen2))
+        self.btn2.grid(row=0, column=1, padx=5, ipady=5, sticky="ew")
 
-        btn3 = tk.Button(button_frame, text="Server 3", command=lambda: self.show_screen(self.screen3))
-        btn3.grid(row=0, column=2, padx=5, ipady=5, sticky="ew")
+        self.btn3 = tk.Button(button_frame, text="Server 3", bg="green", command=lambda: self.show_screen(self.screen3))
+        self.btn3.grid(row=0, column=2, padx=5, ipady=5, sticky="ew")
 
-        btn4 = tk.Button(button_frame, text="Server 4", command=lambda: self.show_screen(self.screen4))
-        btn4.grid(row=0, column=3, padx=5, ipady=5, sticky="ew")
+        self.btn4 = tk.Button(button_frame, text="Server 4", bg="green", command=lambda: self.show_screen(self.screen4))
+        self.btn4.grid(row=0, column=3, padx=5, ipady=5, sticky="ew")
 
         # --- 2. CPU THRESHOLD BAR ---
         threshold_frame = tk.Frame(self.root, bg="#f0f0f0", pady=10)
@@ -149,6 +169,8 @@ class GCP_Moniter:
         self.create_screen4_charts()
         self.show_screen(self.screen1)
 
+        # --- 5. START UPDATE LOOP ---
+        #self.root.after(1000, self.UpdateProcess)
 
     def show_screen(self, screen_to_show):
         """Hides all screens and displays the requested one."""
@@ -266,6 +288,10 @@ class GCP_Moniter:
 
     def update_charts1(self):
         self.data.update1()
+        if not self.data.s1okay:
+            self.btn1.configure(text="Server 1 Error:Check Console", bg="yellow")
+        else:
+            self.btn1.configure(text="Server 1", bg="green")
         # Mapping of chart tuples (line, canvas) to their data queues
         mappings = [
             (self.mon1cpu, self.data.s1cpu),
@@ -277,6 +303,10 @@ class GCP_Moniter:
         self._update_screen_canvas(mappings)
     def update_charts2(self):
         self.data.update2()
+        if not self.data.s2okay:
+            self.btn2.configure(text="Server 2 Error:Check Console", bg="yellow")
+        else:
+            self.btn2.configure(text="Server 2", bg="green")
         # Mapping of chart tuples (line, canvas) to their data queues
         mappings = [
             (self.mon2cpu, self.data.s2cpu),
@@ -288,6 +318,10 @@ class GCP_Moniter:
         self._update_screen_canvas(mappings)
     def update_charts3(self):
         self.data.update3()
+        if not self.data.s3okay:
+            self.btn3.configure(text="Server 3 Error:Check Console", bg="yellow")
+        else:
+            self.btn3.configure(text="Server 3", bg="green")
         # Mapping of chart tuples (line, canvas) to their data queues
         mappings = [
             (self.mon3cpu, self.data.s3cpu),
@@ -299,6 +333,10 @@ class GCP_Moniter:
         self._update_screen_canvas(mappings)
     def update_charts4(self):
         self.data.update4()
+        if not self.data.s4okay:
+            self.btn4.configure(text="Server 4 Error:Check Console", bg="yellow")
+        else:
+            self.btn4.configure(text="Server 4", bg="green")
         # Mapping of chart tuples (line, canvas) to their data queues
         mappings = [
             (self.mon4cpu, self.data.s4cpu),
@@ -316,13 +354,37 @@ class GCP_Moniter:
         self.checkThresholds()
 
     def checkThresholds(self):
+        _text = ""
+        _bg = "#f0f0f0"
+        okay = True
         # logic need update
         if self.cputhreshold < self.data.s1cpu[99] or self.cputhreshold < self.data.s2cpu[99] or self.cputhreshold < self.data.s3cpu[99] or self.cputhreshold < self.data.s4cpu[99]:
-            self.tnoti.configure(text="Past CPU Threshold!", bg="red")
-        elif self.memorythreshold < self.data.s1memory[99] or self.memorythreshold < self.data.s2memory[99] or self.memorythreshold < self.data.s3memory[99] or self.memorythreshold < self.data.s4memory[99]:
-            self.tnoti.configure(text="Past Memory Threshold!", bg="red")
-        else:
-            self.tnoti.configure(text="Status Okay", bg="#f0f0f0")
+            _text += "Past CPU Threshold!: "
+            _bg = "red"
+            okay = False
+            if self.cputhreshold < self.data.s1cpu[99]:
+                _text += "|Server1| "
+            if self.cputhreshold < self.data.s2cpu[99]:
+                _text += "|Server2| "
+            if self.cputhreshold < self.data.s3cpu[99]:
+                _text += "|Server3| "
+            if self.cputhreshold < self.data.s4cpu[99]:
+                _text += "|Server4| "
+        if self.memorythreshold < self.data.s1memory[99] or self.memorythreshold < self.data.s2memory[99] or self.memorythreshold < self.data.s3memory[99] or self.memorythreshold < self.data.s4memory[99]:
+            _text += "Past Memory Threshold!: "
+            _bg = "red"
+            okay = False
+            if self.memorythreshold < self.data.s1memory[99]:
+                _text += "|Server1| "
+            if self.memorythreshold < self.data.s2memory[99]:
+                _text += "|Server2| "
+            if self.memorythreshold < self.data.s3memory[99]:
+                _text += "|Server3| "
+            if self.memorythreshold < self.data.s4memory[99]:
+                _text += "|Server4| "
+        if okay:
+            _text += "Status Okay"
+        self.tnoti.configure(text=_text, bg=_bg)
 
     def UpdateProcess(self):
         self.update_charts1()
