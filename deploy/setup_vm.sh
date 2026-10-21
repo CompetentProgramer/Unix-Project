@@ -83,7 +83,8 @@ AGENT_PORT="$AGENT_PORT" "$APP_DIR/deploy/iptables.sh" "$@"
 info "Enabling services"
 systemctl daemon-reload
 for u in "${UNITS[@]}"; do
-  systemctl enable --now "$u"
+  systemctl enable "$u"
+  systemctl restart "$u"
 done
 
 EXT_IP="$(curl -fsS --max-time 3 -H 'Metadata-Flavor: Google' \
