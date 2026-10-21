@@ -63,16 +63,16 @@ Optional extra: while a stress event runs, Member 2 writes `/run/obs-stress/stat
 
 ## Dashboard config (Member 3)
 
-`dashboard/servers.yaml` is **not committed** (it holds API keys). Commit
-`servers.yaml.example` instead:
+`dashboard/servers.yaml` is **not committed** (it holds API keys; it is in `.gitignore`).
+Commit `dashboard/servers_example.yaml` instead, with placeholder keys:
 
 ```yaml
-servers:
-  - name: obs-srv-1
-    host: 203.0.113.10
-    port: 8090
-    api_key: REPLACE_ME
+server1:
+  api_url: "http://203.0.113.10:8090"
+  api_key: "<API_KEY_GOES_HERE>"
 ```
+
+Run `python Dashboard.py` from the `dashboard/` folder. See `dashboard/README.md`.
 
 ## Network (Member 4)
 

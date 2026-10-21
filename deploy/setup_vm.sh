@@ -100,7 +100,7 @@ else
   echo "Existing API key kept in $ENV_FILE"
 fi
 echo "Dashboard servers.yaml entry:"
-echo "  - name: $(hostname)"
+echo "  - name: $(hostname -s)"
 echo "    host: $EXT_IP"
 echo "    port: $AGENT_PORT"
 echo "    api_key: <key above>"

@@ -1,405 +1,455 @@
-﻿import tkinter as tk
-from collections import deque
+"""GCP monitor: live and historical charts for the observability agents.
+
+Run:  python Dashboard.py      (needs servers.yaml next to this file; copy servers_example.yaml)
+
+How it works
+  * One background thread per server polls its agent every 2 seconds, so a dead
+    or blocked server can never freeze the window or stop the other servers.
+  * Every sample is also saved to history.db (SQLite), so history survives a
+    restart. When a server comes back after an outage, the gap is refilled from
+    the agent's own one-hour buffer.
+  * The window only draws; it reads what the threads collected.
+Collection starts as soon as the app starts.
+"""
+
+import json
+import sqlite3
+import threading
+import time
+import tkinter as tk
+from bisect import bisect_left
+from pathlib import Path
+from tkinter import messagebox, ttk
+
 import numpy as np
-from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+
 import APICaller
 
-class DataHold:
-    def __init__(self):
-        self._len = 100
-        self.s1okay = True
-        self.s1cpu =        deque([0]*self._len, maxlen=self._len)
-        self.s1memory =     deque([0]*self._len, maxlen=self._len)
-        self.s1network =    deque([0]*self._len, maxlen=self._len)
-        self.s1load =       deque([0]*self._len, maxlen=self._len)
-        self.s1disk =       deque([0]*self._len, maxlen=self._len)
-        self.s2okay = True
-        self.s2cpu =        deque([0]*self._len, maxlen=self._len)
-        self.s2memory =     deque([0]*self._len, maxlen=self._len)
-        self.s2network =    deque([0]*self._len, maxlen=self._len)
-        self.s2load =       deque([0]*self._len, maxlen=self._len)
-        self.s2disk =       deque([0]*self._len, maxlen=self._len)
-        self.s3okay = True
-        self.s3cpu =        deque([0]*self._len, maxlen=self._len)
-        self.s3memory =     deque([0]*self._len, maxlen=self._len)
-        self.s3network =    deque([0]*self._len, maxlen=self._len)
-        self.s3load =       deque([0]*self._len, maxlen=self._len)
-        self.s3disk =       deque([0]*self._len, maxlen=self._len)
-        self.s4okay = True
-        self.s4cpu =        deque([0]*self._len, maxlen=self._len)
-        self.s4memory =     deque([0]*self._len, maxlen=self._len)
-        self.s4network =    deque([0]*self._len, maxlen=self._len)
-        self.s4load =       deque([0]*self._len, maxlen=self._len)
-        self.s4disk =       deque([0]*self._len, maxlen=self._len)
+HERE = Path(__file__).resolve().parent
+DB_PATH = HERE / "history.db"
+THRESHOLD_PATH = HERE / "thresholds.json"
+
+POLL_SECONDS = 2        # the agent produces a sample every 2 seconds
+REFRESH_MS = 1000       # how often the window redraws
+KEEP_SECONDS = 6 * 3600 # history kept in memory and in the database
+DOWN_AFTER = 6          # no reply for this long -> DOWN
+STALE_AFTER = 10        # replies but no new sample for this long -> STALE
+GAP_SECONDS = 10        # break the chart line where samples are missing
+MAX_POINTS = 1500       # draw at most this many points per chart
+
+# key must match the agent's field names (docs/INTERFACES.md)
+METRICS = (
+    {"key": "cpu_percent", "title": "CPU usage (%)", "short": "CPU %", "fixed": 100.0},
+    {"key": "mem_percent", "title": "Memory usage (%)", "short": "Memory %", "fixed": 100.0},
+    {"key": "disk_io_mbps", "title": "Disk I/O (MB/s)", "short": "Disk MB/s", "fixed": None},
+    {"key": "net_kbps", "title": "Network (KB/s)", "short": "Net KB/s", "fixed": None},
+    {"key": "load_1m", "title": "Load average (1 min)", "short": "Load", "fixed": None},
+)
+KEYS = [metric["key"] for metric in METRICS]
+
+WINDOWS = {
+    "Last 2 minutes": 120,
+    "Last 10 minutes": 600,
+    "Last hour": 3600,
+    "Last 6 hours": 6 * 3600,
+}
+
+STATUS_COLORS = {
+    "OK": "#c8e6c9",
+    "STALE": "#ffe0b2",
+    "DOWN": "#ffcdd2",
+    "WAITING": "#f0f0f0",
+}
+BAR_BG = "#f0f0f0"
 
 
-    def update1(self):
-        temp = APICaller.pollerFunc(1)
-        if temp != -1:
-            self.s1cpu.append(temp["cpu_percent"])
-            self.s1memory.append(temp["mem_percent"])
-            self.s1disk.append(temp["disk_io_mbps"])
-            self.s1network.append(temp["net_kbps"])
-            self.s1load.append(temp["load_1m"])
-            self.s1okay =True
+def init_db():
+    with sqlite3.connect(DB_PATH, timeout=10) as db:
+        columns = ", ".join(f"{key} REAL" for key in KEYS)
+        db.execute(
+            f"CREATE TABLE IF NOT EXISTS samples "
+            f"(server TEXT, ts REAL, {columns}, PRIMARY KEY (server, ts))"
+        )
+        db.execute("DELETE FROM samples WHERE ts < ?", (time.time() - KEEP_SECONDS,))
+    # the 'with' block commits but does not close
+    db.close()
+
+
+class ServerState:
+    """Everything the dashboard knows about one server. Thread-safe."""
+
+    def __init__(self, server):
+        self.server = server
+        self.name = server["name"]
+        self.lock = threading.Lock()
+        self.ts = []                          # sample times, oldest first
+        self.cols = {key: [] for key in KEYS}
+        self.started = time.monotonic()
+        self.last_ok = 0.0                    # last good reply
+        self.last_new = 0.0                   # last reply with a new sample
+        self.error = "starting"
+
+    # ---- data -----------------------------------------------------------
+    def add(self, samples, fresh=True):
+        """Append samples newer than what we have. Returns the ones added."""
+        added = []
+        with self.lock:
+            last = self.ts[-1] if self.ts else 0.0
+            for sample in sorted(samples, key=lambda s: s["ts"]):
+                if sample["ts"] > last:
+                    self.ts.append(sample["ts"])
+                    for key in KEYS:
+                        self.cols[key].append(sample[key])
+                    last = sample["ts"]
+                    added.append(sample)
+            if added and fresh:
+                self.last_new = time.monotonic()
+            cutoff = time.time() - KEEP_SECONDS
+            if self.ts and self.ts[0] < cutoff:
+                drop = bisect_left(self.ts, cutoff)
+                del self.ts[:drop]
+                for key in KEYS:
+                    del self.cols[key][:drop]
+        return added
+
+    def latest(self):
+        with self.lock:
+            if not self.ts:
+                return None
+            return {key: self.cols[key][-1] for key in KEYS}
+
+    def window(self, seconds):
+        """(times, {key: values}) for the last `seconds`, gaps marked with NaN."""
+        cutoff = time.time() - seconds
+        with self.lock:
+            start = bisect_left(self.ts, cutoff)
+            ts = np.array(self.ts[start:], dtype=float)
+            cols = {key: np.array(self.cols[key][start:], dtype=float) for key in KEYS}
+        if ts.size == 0:
+            return ts, cols
+
+        step = max(1, ts.size // MAX_POINTS)
+        ts = ts[::step]
+        cols = {key: values[::step] for key, values in cols.items()}
+
+        # lift the pen where the agent was down instead of drawing a false line
+        breaks = np.where(np.diff(ts) > max(GAP_SECONDS, 6 * step))[0] + 1
+        if breaks.size:
+            ts = np.insert(ts, breaks, ts[breaks - 1] + 1.0)
+            cols = {key: np.insert(values, breaks, np.nan) for key, values in cols.items()}
+        return ts, cols
+
+    def status(self):
+        now = time.monotonic()
+        if now - (self.last_ok or self.started) > DOWN_AFTER:
+            return "DOWN"
+        if not self.last_ok:
+            return "WAITING"
+        if now - self.last_new > STALE_AFTER:
+            return "STALE"
+        return "OK"
+
+    # ---- background thread ---------------------------------------------
+    def save(self, db, rows):
+        if not rows:
+            return
+        try:
+            db.executemany(
+                f"INSERT OR IGNORE INTO samples VALUES (?, ?, {', '.join('?' * len(KEYS))})",
+                [(self.name, row["ts"], *[row[key] for key in KEYS]) for row in rows],
+            )
+            db.commit()
+        except sqlite3.Error as exc:
+            print(f"{self.name}: could not save history ({exc})", flush=True)
+
+    def load_saved(self, db):
+        try:
+            rows = db.execute(
+                f"SELECT ts, {', '.join(KEYS)} FROM samples "
+                "WHERE server = ? AND ts > ? ORDER BY ts",
+                (self.name, time.time() - KEEP_SECONDS),
+            ).fetchall()
+        except sqlite3.Error as exc:
+            print(f"{self.name}: could not read history ({exc})", flush=True)
+            return
+        self.add(
+            [dict(zip(("ts", *KEYS), row)) for row in rows],
+            fresh=False,
+        )
+
+    def run(self, stop):
+        """Poll forever. Never raises; errors only change self.error."""
+        db = sqlite3.connect(DB_PATH, timeout=10)
+        self.load_saved(db)
+        was_down = True
+
+        while not stop.is_set():
+            sample, error = APICaller.fetch_latest(self.server)
+            if sample is None:
+                self.error = error
+                was_down = True
+            else:
+                self.last_ok = time.monotonic()
+                self.error = ""
+                if was_down:
+                    # first contact or back from an outage: refill from the agent
+                    history, _ = APICaller.fetch_history(self.server, 3600)
+                    if history:
+                        self.save(db, self.add(history))
+                    was_down = False
+                self.save(db, self.add([sample]))
+            stop.wait(POLL_SECONDS)
+
+        db.close()
+
+
+class MetricChart:
+    """One matplotlib chart inside a Tk frame."""
+
+    def __init__(self, parent, row, col, metric, server_name):
+        self.metric = metric
+        figure = Figure(figsize=(4, 3), dpi=100)
+        self.ax = figure.add_subplot(111)
+        (self.line,) = self.ax.plot([], [], color="tab:blue", linewidth=1.3)
+        self.limit_line = self.ax.axhline(
+            0, color="red", linestyle="--", linewidth=1, visible=False
+        )
+        self.ax.set_title(f"{metric['title']}  {server_name}", fontsize=10)
+        self.ax.set_xlabel("minutes ago", fontsize=8)
+        self.ax.tick_params(labelsize=8)
+        self.ax.grid(alpha=0.3)
+        figure.tight_layout()
+
+        self.canvas = FigureCanvasTkAgg(figure, master=parent)
+        self.canvas.get_tk_widget().grid(row=row, column=col, sticky="nsew", padx=5, pady=5)
+
+    def update(self, ts, values, window_seconds, limit):
+        self.line.set_data((ts - time.time()) / 60.0, values)
+        self.ax.set_xlim(-window_seconds / 60.0, 0)
+
+        finite = values[np.isfinite(values)]
+        if self.metric["fixed"]:
+            top = self.metric["fixed"]
         else:
-            self.s1okay = False
+            peak = float(finite.max()) if finite.size else 0.0
+            top = max(peak * 1.15, 1.0)
+            if limit is not None:
+                top = max(top, limit * 1.1)
+        self.ax.set_ylim(0, top)
 
-    def update2(self):
-        temp = APICaller.pollerFunc(2)
-        if temp != -1:
-            self.s2cpu.append(temp["cpu_percent"])
-            self.s2memory.append(temp["mem_percent"])
-            self.s2disk.append(temp["disk_io_mbps"])
-            self.s2network.append(temp["net_kbps"])
-            self.s2load.append(temp["load_1m"])
-            self.s2okay =True
+        if limit is None:
+            self.limit_line.set_visible(False)
         else:
-            self.s2okay = False
+            self.limit_line.set_ydata([limit, limit])
+            self.limit_line.set_visible(True)
+        self.canvas.draw_idle()
 
-    def update3(self):
-        temp = APICaller.pollerFunc(3)
-        if temp != -1:
-            self.s3cpu.append(temp["cpu_percent"])
-            self.s3memory.append(temp["mem_percent"])
-            self.s3disk.append(temp["disk_io_mbps"])
-            self.s3network.append(temp["net_kbps"])
-            self.s3load.append(temp["load_1m"])
-            self.s3okay =True
-        else:
-            self.s3okay = False
 
-    def update4(self):
-        temp = APICaller.pollerFunc(4)
-        if temp != -1:
-            self.s4cpu.append(temp["cpu_percent"])
-            self.s4memory.append(temp["mem_percent"])
-            self.s4disk.append(temp["disk_io_mbps"])
-            self.s4network.append(temp["net_kbps"])
-            self.s4load.append(temp["load_1m"])
-            self.s4okay =True
-        else:
-            self.s4okay = False
-class GCP_Moniter:
-    def __init__(self, root):
-        self.data = DataHold()
+def load_thresholds():
+    try:
+        raw = json.loads(THRESHOLD_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {
+        key: float(raw[key])
+        for key in KEYS
+        if isinstance(raw.get(key), (int, float))
+    }
+
+
+def save_thresholds(thresholds):
+    try:
+        THRESHOLD_PATH.write_text(json.dumps(thresholds), encoding="utf-8")
+    except OSError as exc:
+        print(f"could not save thresholds ({exc})", flush=True)
+
+
+class Monitor:
+    """The window."""
+
+    def __init__(self, root, states):
         self.root = root
-        self.root.title("GCP Monitor")
-        self.root.geometry("1920x1080")
+        self.states = states
+        self.thresholds = load_thresholds()
+        self.window_seconds = WINDOWS["Last 2 minutes"]
+        self.current = 0
 
-        # Make the main window rows/columns responsive
-        self.root.rowconfigure(2, weight=1)
-        self.root.columnconfigure(0, weight=1)
+        root.title("GCP Monitor")
+        root.geometry("1500x900")
+        root.rowconfigure(2, weight=1)
+        root.columnconfigure(0, weight=1)
 
-        # --- 1. TOP BUTTON BAR ---
-        button_frame = tk.Frame(self.root, bg="#f0f0f0", pady=10)
-        button_frame.grid(row=0, column=0, sticky="ew")
+        # --- server buttons + time window ---
+        top = tk.Frame(root, bg=BAR_BG, pady=10)
+        top.grid(row=0, column=0, sticky="ew")
+        for i in range(len(states)):
+            top.columnconfigure(i, weight=1)
+        self.buttons = []
+        for i, state in enumerate(states):
+            button = tk.Button(top, text=state.name, command=lambda i=i: self.show_screen(i))
+            button.grid(row=0, column=i, padx=5, ipady=5, sticky="ew")
+            self.buttons.append(button)
+        picker = tk.Frame(top, bg=BAR_BG)
+        picker.grid(row=1, column=0, columnspan=len(states), pady=(8, 0))
+        tk.Label(picker, text="Time window:", bg=BAR_BG).pack(side="left", padx=5)
+        self.window_box = ttk.Combobox(
+            picker, state="readonly", values=list(WINDOWS), width=18
+        )
+        self.window_box.set("Last 2 minutes")
+        self.window_box.bind("<<ComboboxSelected>>", self.on_window_change)
+        self.window_box.pack(side="left")
 
-        # Configure equal spacing for buttons
-        for i in range(4):
-            button_frame.columnconfigure(i, weight=1)
+        # --- thresholds + alert ---
+        bar = tk.Frame(root, bg=BAR_BG, pady=10)
+        bar.grid(row=1, column=0, sticky="ew")
+        self.entries = {}
+        for column, metric in enumerate(METRICS):
+            bar.columnconfigure(column, weight=1)
+            tk.Label(bar, text=f"{metric['short']} threshold", bg=BAR_BG).grid(row=0, column=column)
+            entry = tk.Entry(bar, width=10)
+            current = self.thresholds.get(metric["key"])
+            entry.insert(0, "" if current is None else f"{current:g}")
+            entry.grid(row=1, column=column)
+            self.entries[metric["key"]] = entry
+        bar.columnconfigure(len(METRICS), weight=2)
+        tk.Button(bar, text="Set thresholds", command=self.set_thresholds).grid(
+            row=0, column=len(METRICS), rowspan=2, padx=5, ipady=5
+        )
+        self.alert = tk.Label(
+            bar, text="Status OK", bg=BAR_BG, font=("TkDefaultFont", 11, "bold")
+        )
+        self.alert.grid(row=2, column=0, columnspan=len(METRICS) + 1, pady=(8, 0))
+        tk.Label(
+            bar, text="Leave a box empty for no limit. Limits are saved and shown as red dashed lines.",
+            bg=BAR_BG, fg="gray30",
+        ).grid(row=3, column=0, columnspan=len(METRICS) + 1)
 
-        # Control buttons
-        self.btn1 = tk.Button(button_frame, text="Server 1", bg="green", command=lambda: self.show_screen(self.screen1))
-        self.btn1.grid(row=0, column=0, padx=5, ipady=5, sticky="ew")
+        # --- one screen of charts per server ---
+        self.screens, self.charts = [], []
+        for state in states:
+            frame = tk.Frame(root)
+            for column in range(3):
+                frame.columnconfigure(column, weight=1)
+            for row in range(2):
+                frame.rowconfigure(row, weight=1)
+            self.charts.append(
+                [
+                    MetricChart(frame, n // 3, n % 3, metric, state.name)
+                    for n, metric in enumerate(METRICS)
+                ]
+            )
+            self.screens.append(frame)
 
-        self.btn2 = tk.Button(button_frame, text="Server 2", bg="green", command=lambda: self.show_screen(self.screen2))
-        self.btn2.grid(row=0, column=1, padx=5, ipady=5, sticky="ew")
+        # --- status bar ---
+        self.status_bar = tk.Label(root, text="", anchor="w", bg=BAR_BG, fg="gray30")
+        self.status_bar.grid(row=3, column=0, sticky="ew")
 
-        self.btn3 = tk.Button(button_frame, text="Server 3", bg="green", command=lambda: self.show_screen(self.screen3))
-        self.btn3.grid(row=0, column=2, padx=5, ipady=5, sticky="ew")
+        self.show_screen(0)
+        self.refresh()
 
-        self.btn4 = tk.Button(button_frame, text="Server 4", bg="green", command=lambda: self.show_screen(self.screen4))
-        self.btn4.grid(row=0, column=3, padx=5, ipady=5, sticky="ew")
+    # ---- user actions ---------------------------------------------------
+    def show_screen(self, index):
+        for screen in self.screens:
+            screen.grid_forget()
+        self.current = index
+        self.screens[index].grid(row=2, column=0, sticky="nsew")
+        self.draw_current()
 
-        # --- 2. CPU THRESHOLD BAR ---
-        threshold_frame = tk.Frame(self.root, bg="#f0f0f0", pady=10)
-        threshold_frame.grid(row=1, column=0, sticky="ew")
+    def on_window_change(self, _event=None):
+        self.window_seconds = WINDOWS[self.window_box.get()]
+        self.draw_current()
 
-        threshold_frame.rowconfigure(0, weight=1)
-        threshold_frame.rowconfigure(1, weight=1)
-        threshold_frame.columnconfigure(0, weight=1)
-        threshold_frame.columnconfigure(1, weight=1)
-        threshold_frame.columnconfigure(2, weight=1)
-        self.cputhreshold = 100.0
-        self.memorythreshold = 100.0
-
-        # CPU threshold
-        tcpu = tk.Label(threshold_frame, text="CPU Threshold" )
-        tcpu.grid(row=0, column=0, sticky="ew")
-        self.tcpue = tk.Entry(threshold_frame)
-        self.tcpue.grid(row=1, column=0 )
-        
-        #Memmory threshold
-        tmem = tk.Label(threshold_frame, text="Memory Threshold")
-        tmem.grid(row=0, column=1, sticky="ew")
-        self.tmeme = tk.Entry(threshold_frame)
-        self.tmeme.grid(row=1, column=1 )
-
-        #Notifier
-        self.tnoti = tk.Label(threshold_frame, text="Status Okay")
-        self.tnoti.grid(row=0, column=2, sticky="ew")
-
-        #Set Button
-        tbtn = tk.Button(threshold_frame, text="Set", command=lambda: self.setThresholds())
-        tbtn.grid(row=1, column=2, padx=5, ipady=5, sticky="nsew")
-
-
-        # --- 3. SCREEN CONTAINERS ---
-        self.screen1 = tk.Frame(self.root)
-        self.screen2 = tk.Frame(self.root)
-        self.screen3 = tk.Frame(self.root)
-        self.screen4 = tk.Frame(self.root)
-
-        # Configure 2x2 responsiveness for both screen frames
-        for screen in (self.screen1, self.screen2, self.screen3, self.screen4):
-            screen.rowconfigure(0, weight=1)
-            screen.rowconfigure(1, weight=1)
-            screen.columnconfigure(0, weight=1)
-            screen.columnconfigure(1, weight=1)
-            screen.columnconfigure(2, weight=1)
-
-        # --- 4. INNIT CHARTS ---
-        # creates references for update proccess to work correctly
-        self.x = np.linspace(0, 10, 100)
-        self.create_screen1_charts()
-        self.create_screen2_charts()
-        self.create_screen3_charts()
-        self.create_screen4_charts()
-        self.show_screen(self.screen1)
-
-        # --- 5. START UPDATE LOOP ---
-        #self.root.after(1000, self.UpdateProcess)
-
-    def show_screen(self, screen_to_show):
-        """Hides all screens and displays the requested one."""
-        self.screen1.grid_forget()
-        self.screen2.grid_forget()
-        self.screen3.grid_forget()
-        self.screen4.grid_forget()
-        screen_to_show.grid(row=2, column=0, sticky="nsew")
-
-    def embed_chart(self, parent_frame, row, col, plot_func, title):
-        """Helper to create a Matplotlib figure and embed it into Tkinter."""
-        fig = Figure(figsize=(4, 3), dpi=100)
-        ax = fig.add_subplot(111)
-
-        # Capture whatever the plot function returns
-        # (Since your lambdas evaluate tuples, this captures the tuple)
-        plot_func(ax)
-
-        line = ax.get_lines()[0]
-        ax.set_title(title, fontsize=10)
-        ax.set_xticklabels([])
-        fig.tight_layout()
-
-        # Link Matplotlib canvas to Tkinter
-        canvas = FigureCanvasTkAgg(fig, master=parent_frame)
-        canvas_widget = canvas.get_tk_widget()
-        canvas_widget.grid(row=row, column=col, sticky="nsew", padx=5, pady=5)
-        canvas.draw()
-
-        return line, canvas
-
-    # --- SCREEN 1 PLOTS (Set A) ---
-    def create_screen1_charts(self):
-        self.mon1cpu = self.embed_chart(self.screen1, 0, 0,
-                         lambda ax: (ax.plot(self.x[:len(self.data.s1cpu)], list(self.data.s1cpu), 'r'),
-                                     ax.set_ylim(0, 100)), "CPU Usage")
-        self.mon1mem = self.embed_chart(self.screen1, 0, 1,
-                         lambda ax: (ax.plot(self.x[:len(self.data.s1memory)], list(self.data.s1memory), 'r'),
-                                     ax.set_ylim(0, 100)), "Memory Usage")
-        self.mon1disk = self.embed_chart(self.screen1, 0, 2,
-                         lambda ax: (ax.plot(self.x[:len(self.data.s1disk)], list(self.data.s1disk), 'r'),
-                                     ax.set_ylim(0, 120)), "Disk IO Mbps")
-        self.mon1net = self.embed_chart(self.screen1, 1, 0,
-                         lambda ax: (ax.plot(self.x[:len(self.data.s1network)], list(self.data.s1network), 'r'),
-                                     ax.set_ylim(0, 3.5)), "Network Usage Kbps")
-        self.mon1load =self.embed_chart(self.screen1, 1, 1,
-                         lambda ax: (ax.plot(self.x[:len(self.data.s1load)], list(self.data.s1load), 'r'),
-                                     ax.set_ylim(0, 5)), "Load 1m")
-    def create_screen2_charts(self):
-        self.mon2cpu = self.embed_chart(self.screen2, 0, 0,
-                         lambda ax: (ax.plot(self.x[:len(self.data.s2cpu)], list(self.data.s2cpu), 'r'),
-                                     ax.set_ylim(0, 100)), "CPU Usage (S2)")
-        self.mon2mem = self.embed_chart(self.screen2, 0, 1,
-                         lambda ax: (ax.plot(self.x[:len(self.data.s2memory)], list(self.data.s2memory), 'r'),
-                                     ax.set_ylim(0, 100)), "Memory Usage (S2)")
-        self.mon2disk = self.embed_chart(self.screen2, 0, 2,
-                         lambda ax: (ax.plot(self.x[:len(self.data.s2disk)], list(self.data.s2disk), 'r'),
-                                     ax.set_ylim(0, 120)), "Disk IO Mbps (S2)")
-        self.mon2net = self.embed_chart(self.screen2, 1, 0,
-                         lambda ax: (ax.plot(self.x[:len(self.data.s2network)], list(self.data.s2network), 'r'),
-                                     ax.set_ylim(0, 3.5)), "Network Usage Kbps (S2)")
-        self.mon2load =self.embed_chart(self.screen2, 1, 1,
-                         lambda ax: (ax.plot(self.x[:len(self.data.s2load)], list(self.data.s2load), 'r'),
-                                     ax.set_ylim(0, 5)), "Load 1m (S2)")
-    def create_screen3_charts(self):
-        self.mon3cpu = self.embed_chart(self.screen3, 0, 0,
-                                        lambda ax: (
-                                            ax.plot(self.x[:len(self.data.s3cpu)], list(self.data.s3cpu),'r'),
-                                            ax.set_ylim(0, 100)), "CPU Usage (S3)")
-        self.mon3mem = self.embed_chart(self.screen3, 0, 1,
-                                        lambda ax: (
-                                            ax.plot(self.x[:len(self.data.s3memory)], list(self.data.s3memory),'r'),
-                                            ax.set_ylim(0, 100)), "Memory Usage (S3)")
-        self.mon3disk = self.embed_chart(self.screen3, 0, 2,
-                                         lambda ax: (
-                                             ax.plot(self.x[:len(self.data.s3disk)], list(self.data.s3disk),'r'),
-                                             ax.set_ylim(0, 120)), "Disk IO Mbps (S3)")
-        self.mon3net = self.embed_chart(self.screen3, 1, 0,
-                                        lambda ax: (ax.plot(self.x[:len(self.data.s3network)],
-                                                            list(self.data.s3network), 'r'),
-                                                    ax.set_ylim(0, 3.5)), "Network Usage Kbps (S3)")
-        self.mon3load = self.embed_chart(self.screen3, 1, 1,
-                                         lambda ax: (
-                                             ax.plot(self.x[:len(self.data.s3load)], list(self.data.s3load),'r'),
-                                             ax.set_ylim(0, 5)), "Load 1m (S3)")
-    def create_screen4_charts(self):
-        self.mon4cpu = self.embed_chart(self.screen4, 0, 0,
-                         lambda ax: (ax.plot(self.x[:len(self.data.s4cpu)], list(self.data.s4cpu), 'r'),
-                                     ax.set_ylim(0, 100)), "CPU Usage (S4)")
-        self.mon4mem = self.embed_chart(self.screen4, 0, 1,
-                         lambda ax: (ax.plot(self.x[:len(self.data.s4memory)], list(self.data.s4memory), 'r'),
-                                     ax.set_ylim(0, 100)), "Memory Usage (S4)")
-        self.mon4disk = self.embed_chart(self.screen4, 0, 2,
-                         lambda ax: (ax.plot(self.x[:len(self.data.s4disk)], list(self.data.s4disk), 'r'),
-                                     ax.set_ylim(0, 120)), "Disk IO Mbps (S4)")
-        self.mon4net = self.embed_chart(self.screen4, 1, 0,
-                         lambda ax: (ax.plot(self.x[:len(self.data.s4network)], list(self.data.s4network), 'r'),
-                                     ax.set_ylim(0, 3.5)), "Network Usage Kbps (S4)")
-        self.mon4load =self.embed_chart(self.screen4, 1, 1,
-                         lambda ax: (ax.plot(self.x[:len(self.data.s4load)], list(self.data.s4load), 'r'),
-                                     ax.set_ylim(0, 5)), "Load 1m (S4)")
-
-    def _update_screen_canvas(self, mappings):
-        """Helper to run vector updates over structured visual charts."""
-        for (line, canvas), data_deque in mappings:
-            y_data = list(data_deque)
-            if not y_data:
+    def set_thresholds(self):
+        new = {}
+        for metric in METRICS:
+            text = self.entries[metric["key"]].get().strip()
+            if not text:
                 continue
-            x_data = self.x[:len(y_data)]
-            line.set_data(x_data, y_data)
-            ax = line.axes
-            ax.relim()
-            ax.autoscale_view(scaley=False)
-            canvas.draw_idle()
+            try:
+                value = float(text)
+                if value < 0:
+                    raise ValueError
+            except ValueError:
+                messagebox.showerror(
+                    "Threshold",
+                    f"{metric['short']}: '{text}' is not a number of 0 or more.",
+                )
+                return
+            new[metric["key"]] = value
+        self.thresholds = new
+        save_thresholds(new)
+        self.refresh_alerts()
+        self.draw_current()
 
-    def update_charts1(self):
-        self.data.update1()
-        if not self.data.s1okay:
-            self.btn1.configure(text="Server 1 Error:Check Console", bg="yellow")
+    # ---- drawing --------------------------------------------------------
+    def draw_current(self):
+        state = self.states[self.current]
+        ts, cols = state.window(self.window_seconds)
+        for chart in self.charts[self.current]:
+            key = chart.metric["key"]
+            chart.update(ts, cols[key], self.window_seconds, self.thresholds.get(key))
+
+    def refresh_alerts(self):
+        problems = []
+        for state, button in zip(self.states, self.buttons):
+            status = state.status()
+            button.configure(text=f"{state.name}  [{status}]", bg=STATUS_COLORS[status])
+            if status == "DOWN":
+                problems.append(f"{state.name} is DOWN")
+            elif status == "OK":
+                latest = state.latest()
+                for metric in METRICS:
+                    limit = self.thresholds.get(metric["key"])
+                    value = latest[metric["key"]] if latest else None
+                    if limit is not None and value is not None and value > limit:
+                        problems.append(
+                            f"{state.name} {metric['short']} {value:.1f} > {limit:g}"
+                        )
+
+        if problems:
+            shown = "; ".join(problems[:3])
+            extra = f" (+{len(problems) - 3} more)" if len(problems) > 3 else ""
+            self.alert.configure(text=f"ALERT: {shown}{extra}", bg="red", fg="white")
         else:
-            self.btn1.configure(text="Server 1", bg="green")
-        # Mapping of chart tuples (line, canvas) to their data queues
-        mappings = [
-            (self.mon1cpu, self.data.s1cpu),
-            (self.mon1mem, self.data.s1memory),
-            (self.mon1disk, self.data.s1disk),
-            (self.mon1net, self.data.s1network),
-            (self.mon1load, self.data.s1load)
-        ]
-        self._update_screen_canvas(mappings)
-    def update_charts2(self):
-        self.data.update2()
-        if not self.data.s2okay:
-            self.btn2.configure(text="Server 2 Error:Check Console", bg="yellow")
-        else:
-            self.btn2.configure(text="Server 2", bg="green")
-        # Mapping of chart tuples (line, canvas) to their data queues
-        mappings = [
-            (self.mon2cpu, self.data.s2cpu),
-            (self.mon2mem, self.data.s2memory),
-            (self.mon2disk, self.data.s2disk),
-            (self.mon2net, self.data.s2network),
-            (self.mon2load, self.data.s2load)
-        ]
-        self._update_screen_canvas(mappings)
-    def update_charts3(self):
-        self.data.update3()
-        if not self.data.s3okay:
-            self.btn3.configure(text="Server 3 Error:Check Console", bg="yellow")
-        else:
-            self.btn3.configure(text="Server 3", bg="green")
-        # Mapping of chart tuples (line, canvas) to their data queues
-        mappings = [
-            (self.mon3cpu, self.data.s3cpu),
-            (self.mon3mem, self.data.s3memory),
-            (self.mon3disk, self.data.s3disk),
-            (self.mon3net, self.data.s3network),
-            (self.mon3load, self.data.s3load)
-        ]
-        self._update_screen_canvas(mappings)
-    def update_charts4(self):
-        self.data.update4()
-        if not self.data.s4okay:
-            self.btn4.configure(text="Server 4 Error:Check Console", bg="yellow")
-        else:
-            self.btn4.configure(text="Server 4", bg="green")
-        # Mapping of chart tuples (line, canvas) to their data queues
-        mappings = [
-            (self.mon4cpu, self.data.s4cpu),
-            (self.mon4mem, self.data.s4memory),
-            (self.mon4disk, self.data.s4disk),
-            (self.mon4net, self.data.s4network),
-            (self.mon4load, self.data.s4load)
-        ]
-        self._update_screen_canvas(mappings)
+            self.alert.configure(text="Status OK", bg=BAR_BG, fg="black")
 
-    def setThresholds(self):
-        self.cputhreshold = float(self.tcpue.get())
-        self.memorythreshold = float(self.tmeme.get())
-        print(self.cputhreshold, self.memorythreshold)
-        self.checkThresholds()
+        errors = [f"{s.name}: {s.error}" for s in self.states if s.error]
+        self.status_bar.configure(text="  |  ".join(errors) or "All servers answering")
 
-    def checkThresholds(self):
-        _text = ""
-        _bg = "#f0f0f0"
-        okay = True
-        # logic need update
-        if self.cputhreshold < self.data.s1cpu[99] or self.cputhreshold < self.data.s2cpu[99] or self.cputhreshold < self.data.s3cpu[99] or self.cputhreshold < self.data.s4cpu[99]:
-            _text += "Past CPU Threshold!: "
-            _bg = "red"
-            okay = False
-            if self.cputhreshold < self.data.s1cpu[99]:
-                _text += "|Server1| "
-            if self.cputhreshold < self.data.s2cpu[99]:
-                _text += "|Server2| "
-            if self.cputhreshold < self.data.s3cpu[99]:
-                _text += "|Server3| "
-            if self.cputhreshold < self.data.s4cpu[99]:
-                _text += "|Server4| "
-        if self.memorythreshold < self.data.s1memory[99] or self.memorythreshold < self.data.s2memory[99] or self.memorythreshold < self.data.s3memory[99] or self.memorythreshold < self.data.s4memory[99]:
-            _text += "Past Memory Threshold!: "
-            _bg = "red"
-            okay = False
-            if self.memorythreshold < self.data.s1memory[99]:
-                _text += "|Server1| "
-            if self.memorythreshold < self.data.s2memory[99]:
-                _text += "|Server2| "
-            if self.memorythreshold < self.data.s3memory[99]:
-                _text += "|Server3| "
-            if self.memorythreshold < self.data.s4memory[99]:
-                _text += "|Server4| "
-        if okay:
-            _text += "Status Okay"
-        self.tnoti.configure(text=_text, bg=_bg)
+    def refresh(self):
+        try:
+            self.refresh_alerts()
+            self.draw_current()
+        except Exception as exc:  # the loop must never die
+            self.status_bar.configure(text=f"display error: {exc}")
+        finally:
+            self.root.after(REFRESH_MS, self.refresh)
 
-    def UpdateProcess(self):
-        self.update_charts1()
-        self.update_charts2()
-        self.update_charts3()
-        self.update_charts4()
-        self.checkThresholds()
 
-        self.root.after(1000, self.UpdateProcess)
+def main():
+    try:
+        servers = APICaller.load_servers()
+    except APICaller.ConfigError as exc:
+        raise SystemExit(f"error: {exc}")
 
-# Run the app
-if __name__ == "__main__":
+    init_db()
+    states = [ServerState(server) for server in servers]
+    stop = threading.Event()
+    for state in states:
+        threading.Thread(target=state.run, args=(stop,), daemon=True).start()
+
     root = tk.Tk()
-    app = GCP_Moniter(root)
-    app.UpdateProcess()
+    Monitor(root, states)
+
+    def close():
+        stop.set()
+        root.destroy()
+
+    root.protocol("WM_DELETE_WINDOW", close)
     root.mainloop()
 
 
+if __name__ == "__main__":
+    main()

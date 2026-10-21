@@ -1,15 +1,14 @@
 # Linux Infrastructure Observability Dashboard
 
 Four GCP Ubuntu VMs, each running a custom Python metrics agent and a `stress-ng` load
-generator, monitored by one custom Dash dashboard. No off-the-shelf monitoring tools are used.
-The original assignment is in `docs/ASSIGNMENT.md`.
+generator, monitored by one custom Python (Tkinter) dashboard. No off-the-shelf monitoring tools are used.
 
 ## Layout
 
 ```text
 agent/       collector, API process, launcher, systemd unit, cron watchdog   (Member 1 / 2)
 stress/      stress_loop.sh and its systemd unit                             (Member 2)
-dashboard/   Dash app, poller, SQLite code                                   (Member 3)
+dashboard/   Tkinter app, poller, history database                                   (Member 3)
 deploy/      GCP, VM and firewall scripts, watchdog cron file                (Member 4)
 docs/        INTERFACES.md (contract between pieces), COMMANDS.md, assignment
 report/      screenshots and the contribution log for the final report
