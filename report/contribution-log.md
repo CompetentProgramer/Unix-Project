@@ -14,6 +14,8 @@ Testing, Documentation, Report, Video.
 | 2026-10-18 | Member 2 | Systemd/cron | Wrote obs-stress.service, watchdog.sh and the cron job; tested crash and hang recovery| 1.5 |
 | 2026-10-18 | Member 3 | Dashboard | Created Dashboard app using python; Integrated threshold notifier; Created server poller| 4.5 |
 | 2026-10-19 | Member 4 | Testing | Troubleshooting problems for final code | 2 |
+| 2026-10-20/21 | Member 4 | Testing | Troubleshooting problems for final code. Again... | 5 |
+
 
 ## Final effort summary
 
@@ -21,6 +23,6 @@ Testing, Documentation, Report, Video.
 | --- | --- | --- |
 | Member 1 | | |
 | Member 2 | Stress script and Systemd/cron | 25% |
-| Member 3 | Dashboard App | |
+| Member 3 | Dashboard App | 25% |
 | Member 4 | Firewall and setup | 25% |
 | **Total** | | **100%** |
