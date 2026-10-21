@@ -21,7 +21,7 @@ Testing, Documentation, Report, Video.
 
 | Member | Main activities | % of effort |
 | --- | --- | --- |
-| Member 1 | | |
+| Member 1 | | Metrics and API Developed | 25% |
 | Member 2 | Stress script and Systemd/cron | 25% |
 | Member 3 | Dashboard App | 25% |
 | Member 4 | Firewall and setup | 25% |
