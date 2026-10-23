@@ -282,8 +282,9 @@ class GCP_Moniter:
             x_data = self.x[:len(y_data)]
             line.set_data(x_data, y_data)
             ax = line.axes
-            ax.relim()
-            ax.autoscale_view(scaley=True)
+            title = ax.get_title()
+            if title.startswith(("Disk", "Network", "Load")):
+                ax.set_ylim(0, max(max(y_data) * 1.15, 1.0))
             canvas.draw_idle()
 
     def update_charts1(self):
