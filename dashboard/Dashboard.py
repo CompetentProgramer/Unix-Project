@@ -387,13 +387,12 @@ class GCP_Moniter:
         self.tnoti.configure(text=_text, bg=_bg)
 
     def UpdateProcess(self):
-        self.update_charts1()
-        self.update_charts2()
-        self.update_charts3()
-        self.update_charts4()
-        self.checkThresholds()
-
-        self.root.after(1000, self.UpdateProcess)
+        try:
+            self.update_charts1(); self.update_charts2()
+            self.update_charts3(); self.update_charts4()
+            self.checkThresholds()
+        finally:
+            self.root.after(1000, self.UpdateProcess)
 
 # Run the app
 if __name__ == "__main__":
